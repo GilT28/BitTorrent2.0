@@ -32,10 +32,12 @@ class TorrentClass:
 
     def extract_announce_list(self, data):
         pattern = re.compile(r'udp://([\w.-]+):(\d+)')
-        return [
-            (pattern.match(item[0].decode('utf-8')).group(1), int(pattern.match(item[0].decode('utf-8')).group(2)))
-            for item in data[b'announce-list']
-        ]
+        announce_list = []
+        for item in data.get(b'announce-list', []):
+            match = pattern.match(item[0].decode('utf-8'))
+            if match:
+                announce_list.append((match.group(1), int(match.group(2))))
+        return announce_list
 
     def extract_piece_list(self, data):
         piece_size = self.piece_length

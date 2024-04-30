@@ -20,7 +20,7 @@ class TrackerClass:
         con_msg, transaction_id = self.create_connection_msg()
         self.sock.send(con_msg)
         print(f'{self.tracker_ip} Connection message sent!')
-        tracker_con_msg = self.decode_connection_msg(self.sock.recv(16))  # Trackers own connection message
+        tracker_con_msg = self.decode_connection_msg(self.sock.recv(4096))  # Trackers own connection message
         if tracker_con_msg['action'] == 3 or tracker_con_msg['transaction_id'] != transaction_id:
             print(f'{self.tracker_ip} ERROR: invalid connection. breaking socket')
             return
@@ -31,7 +31,7 @@ class TrackerClass:
                                                            self.torrent_instance.size)
         self.sock.send(ann_msg)
         print(f'{self.tracker_ip} Announce message sent!')
-        tracker_ann_msg = self.decode_announce_msg(self.sock.recv(1024))
+        tracker_ann_msg = self.decode_announce_msg(self.sock.recv(4096))
         if tracker_ann_msg['action'] == 3 or tracker_ann_msg['transaction_id'] != transaction_id:
             print(f'{self.tracker_ip} ERROR: invalid connection. breaking socket')
             return
