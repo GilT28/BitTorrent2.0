@@ -32,12 +32,10 @@ if __name__ == '__main__':
     torrent_instance = TorrentClass.TorrentClass(
         r'C:\Users\gilth\PycharmProjects\BitTorrent 2.0\Selena Gomez & Marshmello - Wolves (Single) (2017) (Mp3 320kbps).torrent')
     print(torrent_instance.number_of_pieces)
-    piece_availability = [set() for _ in range(torrent_instance.number_of_pieces)]
+    piece_availability = {piece: 0 for piece in torrent_instance.piece_list}  # 0 means that no peer has the piece
+    download_queue = [1 for piece in range(0, torrent_instance.number_of_pieces)]  # Queue of pieces to download
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     peer_id = os.urandom(20)
-    download_queue = queue.Queue()
-    for i in range(0, torrent_instance.number_of_pieces):
-        download_queue.put(i)
     try:
         peer_list = []
         for tracker in torrent_instance.announce_list:

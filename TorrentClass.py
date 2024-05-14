@@ -69,7 +69,7 @@ class TorrentClass:
         piece_list[len(piece_list) - 1].size = self.size - (self.number_of_pieces - 1) * self.piece_length
         return piece_list
 
-    def get_piece(self,piece_num):
+    def get_piece(self,piece_index):
         for piece in self.piece_list:
-            if piece.index == piece_num:
+            if piece.index == piece_index:
                 return piece
