@@ -3,28 +3,36 @@ import hashlib
 import socket
 import struct
 import time
-
 import TorrentClass
-
+import threading
 
 class PeerClass:
-    def __init__(self, address: tuple, sock: socket,peer_id: bytes, torrent_instance: TorrentClass):
+    def __init__(self, address: tuple, sock: socket, peer_id: bytes, torrent_instance: TorrentClass):
         self.address = address
         self.sock = sock
         self.peer_id = peer_id
         self.torrent_instance = torrent_instance
-        self.available_pieces = {piece: False for piece in range(0,torrent_instance.number_of_pieces)} # false if peer doesn't have piece, true if peer does have piece
+        self.available_pieces = {piece: False for piece in range(0,
+                                                                 torrent_instance.number_of_pieces)}  # false if peer doesn't have piece, true if peer does have piece
         self.peer_choked = True
 
     def connect(self):
         print(f'{self.address} Connecting to peer...')
-        self.sock.connect(self.address)
+        try:
+            self.sock.connect(self.address)
+        except ConnectionRefusedError:
+            print(f"Connection refused by {self.address}. Moving on to next peer.")
+            return False
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+            return False
         print(f'{self.address} Connected to peer, sending handshake')
         handshake = self.create_handshake(self.torrent_instance.info_hash, self.peer_id)
         self.sock.send(handshake)
         print(f'{self.address} Handshake sent!')
         handshake_data = self.recv_handshake()
-        if isinstance(handshake_data, bytes) and len(handshake_data) == 68 and handshake_data[1:20:] == b'BitTorrent protocol':
+        if isinstance(handshake_data, bytes) and len(handshake_data) == 68 and handshake_data[
+                                                                               1:20:] == b'BitTorrent protocol':
             print('Received valid connection')
             return True
         return False
@@ -33,34 +41,45 @@ class PeerClass:
         start_time = time.time()
         interested_msg = self.create_msg(2)
         self.sock.send(interested_msg)
+        self.sock.settimeout(5.0)
         while True:
+            # Check if all pieces have been downloaded
+            if download_queue.empty():
+                print("Download complete!")
+                break
+
             current_time = time.time()
-            if not self.peer_choked and not download_queue.empty():
+            if not self.peer_choked:
                 # Convert the queue to a list and choose the rarest piece
                 download_queue_list = list(download_queue.queue)
-                rarest_piece = min(download_queue_list, key=lambda piece: len(piece_availability[piece]))
+                rarest_piece = min((piece for piece in download_queue_list if piece < len(piece_availability)),
+                                   key=lambda piece: len(piece_availability[piece]), default=None)
                 download_queue.get(rarest_piece)
 
-                print(f'Checking to download piece: {rarest_piece}')
+                print(f'Peer {self.address} Checking to download piece: {rarest_piece}')
                 if self.available_pieces[rarest_piece]:
                     print(f'Downloading piece: {rarest_piece}')
                     flag = self.download_piece(rarest_piece)
-                    if flag == True:
+                    if flag:
                         print(f'Downloaded piece {rarest_piece}!')
                         # Remove the piece from the availability list
                         del piece_availability[rarest_piece]
                     else:
                         download_queue.put(rarest_piece)
                 else:
+                    print(f'Peer {self.address} does not have piece {rarest_piece}')
                     download_queue.put(rarest_piece)
             if current_time - start_time >= 120:
                 keep_alive = struct.pack('!I', 0)
                 self.sock.send(keep_alive)
                 start_time = current_time
-            msg = self.sock.recv(4096)
-            self.response_handler(msg, piece_availability)
+            try:
+                msg = self.sock.recv(4096)
+                self.response_handler(msg, piece_availability)
+            except socket.timeout:
+                print("No data received from peer within the timeout period.")
 
-    def response_handler(self,msg,piece_availability):
+    def response_handler(self, msg, piece_availability):
         if len(msg) == 5:
             id = msg[4]
             match id:
@@ -97,10 +116,10 @@ class PeerClass:
                     print('Bitfield ERROR')
                     self.sock.close()
                     return
-                print(bitfield_list)
                 self.bitfield(bitfield_list, piece_availability)
 
     def download_piece(self, piece_num):
+        print(f"Starting download of piece {piece_num} from peer {self.address}")
         download_piece = self.torrent_instance.get_piece(piece_num)
         block_size = 16384
         if self.torrent_instance.piece_length < 16384:
@@ -113,6 +132,7 @@ class PeerClass:
         piece = b''
         downloaded = 0
         for block_size in block_size_list:
+            print(f"Requesting block of size {block_size} from peer {self.address}")
             reqmsg = self.request_message(download_piece.index, begin, block_size)
             begin += block_size
             self.sock.send(reqmsg)
@@ -130,23 +150,26 @@ class PeerClass:
                     piece += decodedblock['Block']
                 else:
                     piece += block[9:]
+        print(f"Finished downloading blocks for piece {piece_num} from peer {self.address}")
         print(f'Len of this piece: {len(piece)} vs the actual len: {self.torrent_instance.piece_length}')
         print(f'This piece hash value: {hashlib.sha1(piece).hexdigest()} vs our: {download_piece.hash_value.hex()}')
         if hashlib.sha1(piece).digest() == download_piece.hash_value:
-            print('Downloaded piece number: ', download_piece.index, ' writing to disk now...')
-            with open(r'C:\Users\gilth\PycharmProjects\BitTorrent 2.0\pieces\downloaded_piece_{}.bin'.format(download_piece.index), 'wb') as f:
+            print(f'Downloaded piece number: {download_piece.index} from peer {self.address}, writing to disk now...')
+            with open(r'C:\Users\gilth\PycharmProjects\BitTorrent 2.0\pieces\downloaded_piece_{}.bin'.format(
+                    download_piece.index), 'wb') as f:
                 f.write(piece)
             return True
         return False
 
-    def create_handshake(self,info_hash,peer_id):
+    def create_handshake(self, info_hash, peer_id):
         info_hash = binascii.a2b_hex(info_hash)
         msg = struct.pack('!B19sQ20s20s', 19, 'BitTorrent protocol'.encode(), 0, info_hash, peer_id)
         return msg
 
-    def create_msg(self,id):
+    def create_msg(self, id):
         msg = struct.pack('!IB', 1, id)
         return msg
+
     def recv_handshake(self):
         data = b''
         self.sock.settimeout(5)
@@ -167,19 +190,20 @@ class PeerClass:
     def choked(self):
         self.peer_choked = True
         return
-    
+
     def unchoked(self):
         self.peer_choked = False
         msg = self.create_msg(2)
         self.sock.send(msg)
         return
 
-    def have(self,index,piece_availability):
+    def have(self, index, piece_availability):
         self.available_pieces[index] = True
         piece_availability[index].add(self)
         return
 
-    def bitfield(self,bitfield_list,piece_availability):
+    def bitfield(self, bitfield_list, piece_availability):
+        print(bitfield_list)
         for i in bitfield_list:
             self.available_pieces[i] = True
             piece_availability[i].add(self)
@@ -200,7 +224,7 @@ class PeerClass:
 
     def decode_block(self, msg):
         block_length = len(msg) - 13
-        block = struct.unpack(">IBII{}s".format(block_length), msg[:13 + block_length])
+        block = struct.unpack(f">IBII{block_length}s", msg[:13 + block_length])
         block_dict = {'Len': block[0], 'ID': block[1], 'Piece index': block[2], 'Block offset': block[3],
-                     'Block': block[4]}
+                      'Block': block[4]}
         return block_dict
