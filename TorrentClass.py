@@ -29,9 +29,11 @@ class TorrentClass:
 
     def extract_files(self, data):
         if b'files' in data[b'info']:
-            return {file[b'path'][0].decode('utf-8'): file[b'length'] for file in data[b'info'][b'files']}
+            files = {'/'.join([part.decode('utf-8') for part in file[b'path']]): file[b'length'] for file in
+                     data[b'info'][b'files']}
         else:
-            return {self.name: data[b'info'][b'length']}
+            files = {data[b'info'][b'name'].decode('utf-8'): data[b'info'][b'length']}
+        return files
 
     def calculate_total_size(self, data):
         if b'files' in data[b'info']:

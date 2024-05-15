@@ -5,14 +5,8 @@ import TorrentClass
 import TrackerClass
 import PeerClass
 import threading
-import queue
 import traceback
 
-
-# Goals
-# 1. assemble file
-# 2. gui
-# 3. test
 
 def conncet_to_peer(peer_address, peer_id, torrent_instance, download_queue, piece_availability):
     try:
