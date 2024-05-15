@@ -37,7 +37,7 @@ class PeerClass:
             return True
         return False
 
-    def peer_handler(self, download_queue, piece_availability,download_lock, available_pieces_lock):
+    def peer_handler(self, download_queue, piece_availability):
         start_time = time.time()
         interested_msg = self.create_msg(2)
         self.sock.send(interested_msg)
@@ -58,11 +58,7 @@ class PeerClass:
                     if flag:
                         print(f'Downloaded piece {rarest_piece.index}!')
                     else:
-                        while download_lock:
-                            pass
-                        download_lock = True
                         download_queue[rarest_piece.index] = 1
-                        download_lock = False
                 else:
                     print(f'Peer {self.address} does not have piece {rarest_piece.index}')
             if current_time - start_time >= 120:
@@ -71,11 +67,11 @@ class PeerClass:
                 start_time = current_time
             try:
                 msg = self.sock.recv(4096)
-                self.response_handler(msg, piece_availability, available_pieces_lock)
+                self.response_handler(msg, piece_availability)
             except socket.timeout:
                 print("No data received from peer within the timeout period.")
 
-    def response_handler(self, msg, piece_availability, available_pieces_lock):
+    def response_handler(self, msg, piece_availability):
         if len(msg) == 5:
             id = msg[4]
             match id:
@@ -94,7 +90,7 @@ class PeerClass:
             if id == 4:  # Have
                 print('Have')
                 piece_index = payload
-                self.have(piece_index, piece_availability, available_pieces_lock)
+                self.have(piece_index, piece_availability)
             if id == 5:  # Bitfield
                 print('Bitfield')
                 bitfield_list = []
@@ -112,7 +108,7 @@ class PeerClass:
                     print('Bitfield ERROR')
                     self.sock.close()
                     return
-                self.bitfield(bitfield_list, piece_availability, available_pieces_lock)
+                self.bitfield(bitfield_list, piece_availability)
 
     def download_piece(self, piece_num):
         print(f"Starting download of piece {piece_num} from peer {self.address}")
@@ -194,26 +190,18 @@ class PeerClass:
         self.sock.send(msg)
         return
 
-    def have(self, index, piece_availability,available_pieces_lock):
-        while available_pieces_lock:
-            pass
-        available_pieces_lock = True
+    def have(self, index, piece_availability):
         self.available_pieces[index] = True
         piece_availability[self.torrent_instance.get_piece(index)] += 1
         piece_availability = dict(sorted(piece_availability.items(), key=lambda x: x[1], reverse=True))
-        available_pieces_lock = False
         return
 
-    def bitfield(self, bitfield_list, piece_availability,available_pieces_lock):
-        while available_pieces_lock:
-            pass
-        available_pieces_lock = True
+    def bitfield(self, bitfield_list, piece_availability):
         print(bitfield_list)
         for i in bitfield_list:
             self.available_pieces[i] = True
             piece_availability[self.torrent_instance.get_piece(i)] += 1
         piece_availability = dict(sorted(piece_availability.items(), key=lambda x: x[1], reverse=True))
-        available_pieces_lock = False
         return
 
     def block_offset(self, piecesize, block_size):
@@ -243,12 +231,11 @@ class PeerClass:
             piece_availability_list = list(piece_availability.keys())
             rarest_piece = piece_availability_list[i]
             if download_queue[rarest_piece.index] != 0:
-                continue
-            print(f'Peer {self.address} Checking to download piece: {rarest_piece.index}')
-            if self.available_pieces[rarest_piece.index]:
-                no_pieces = False
-            elif i == len(piece_availability) - 1:
-                no_pieces = True
-                break
+                print(f'Peer {self.address} Checking to download piece: {rarest_piece.index}')
+                if self.available_pieces[rarest_piece.index]:
+                    no_pieces = False
+                elif i == len(piece_availability) - 1:
+                    no_pieces = True
+                    break
             i += 1
         return no_pieces, rarest_piece
