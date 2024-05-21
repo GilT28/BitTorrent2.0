@@ -18,7 +18,11 @@ class TrackerClass:
     def start_communicating(self):
         print(f'{self.tracker_ip} Connecting...')
         print(self.tracker_ip)
-        self.sock.connect(self.tracker_ip)
+        try:
+            self.sock.connect(self.tracker_ip)
+        except socket.gaierror:
+            print(f"Unable to resolve {self.tracker_ip}. Please check the hostname or network connection.")
+            return
         print(f'{self.tracker_ip} Connected! Sending connection message')
         con_msg, transaction_id = self.create_connection_msg()
         self.sock.send(con_msg)

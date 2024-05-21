@@ -10,7 +10,7 @@ import settings
 
 DOWNLOAD_FOLDER = settings.DOWNLOAD_FOLDER
 PIECE_FOLDER = settings.PIECE_FOLDER
-
+MAX_THREAD_PER_PEER = settings.MAX_THREAD_PER_PEER
 
 def create_folders(download_path, piece_path):
     os.makedirs(download_path, exist_ok=True)
@@ -33,7 +33,7 @@ def acquire_peer_list(torrent_instance, udp_sock, peer_id):
 def peer_communicating(peer_address, peer_id, torrent_instance, download_queue, piece_availability):
     try:
         tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        peer_instance = PeerClass.PeerClass(peer_address, tcp_sock, peer_id, torrent_instance, PIECE_FOLDER)
+        peer_instance = PeerClass.PeerClass(peer_address, tcp_sock, peer_id, torrent_instance, PIECE_FOLDER, MAX_THREAD_PER_PEER)
         if peer_instance.connect():
             peer_instance.peer_handler(download_queue, piece_availability)
     except Exception as e:
@@ -68,7 +68,7 @@ def assemble_torrent(torrent_instance, pieces_dir, download_folder):
         file_sizes = list(torrent_instance.files.values())
 
         torrent_dir = torrent_instance.name
-        os.makedirs(torrent_dir, exist_ok=True)
+        #os.makedirs(torrent_dir, exist_ok=True)
 
         file_paths = [os.path.join(download_folder, torrent_dir, file_path) for file_path in file_paths]
 

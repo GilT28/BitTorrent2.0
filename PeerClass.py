@@ -8,7 +8,7 @@ import TorrentClass
 import threading
 
 class PeerClass:
-    def __init__(self, address: tuple, sock: socket, peer_id: bytes, torrent_instance: TorrentClass, piece_folder: str):
+    def __init__(self, address: tuple, sock: socket, peer_id: bytes, torrent_instance: TorrentClass, piece_folder: str, max_thread):
         self.address = address
         self.sock = sock
         self.peer_id = peer_id
@@ -17,6 +17,7 @@ class PeerClass:
                                                                  torrent_instance.number_of_pieces)}  # false if peer doesn't have piece, true if peer does have piece
         self.peer_choked = True
         self.piece_folder = piece_folder
+        self.max_thread = max_thread
 
     def connect(self):
         print(f'{self.address} Connecting to peer...')
@@ -45,16 +46,15 @@ class PeerClass:
         self.sock.send(interested_msg)
         self.sock.settimeout(5.0)
         while True:
-            # Check if all pieces have been downloaded
+            # Check if all pieces have been downloaded and ENDS the thread if so
             if all(piece == 0 for piece in download_queue):
-                print("Download complete!")
                 break
 
             current_time = time.time()
             if not self.peer_choked:
                 no_pieces, rarest_piece = self.get_rarest_piece(piece_availability, download_queue)
                 if not no_pieces:
-                    download_queue[rarest_piece.index] = 0  # Set the count of this piece to 0 as it's being downloaded
+                    download_queue[rarest_piece.index] = 2  # Set the count of this piece to 2 as it's being downloaded
                     print(f'Downloading piece: {rarest_piece.index}')
                     flag = self.download_piece(rarest_piece.index)
                     if flag:
@@ -114,48 +114,52 @@ class PeerClass:
 
     def download_piece(self, piece_num):
         print(f"Starting download of piece {piece_num} from peer {self.address}")
-        download_piece = self.torrent_instance.get_piece(piece_num)
-        block_size = 16384
-        if self.torrent_instance.piece_length < 16384:
-            block_size = self.torrent_instance.piece_length
-        block_size_list = self.block_offset(download_piece.size, block_size)
-        if self.torrent_instance.piece_length % 16384 != 0:
-            block_size_list[-1] = self.torrent_instance.piece_length % 16384
-        begin = 0
-        counter = 0
-        piece = b''
-        downloaded = 0
-        for block_size in block_size_list:
-            print(f"Requesting block of size {block_size} from peer {self.address}")
-            reqmsg = self.request_message(download_piece.index, begin, block_size)
-            begin += block_size
-            self.sock.send(reqmsg)
-            block = b''
-            while len(block) < block_size + 13:  # Keep receiving until the full amount of data is received
-                part = self.sock.recv(block_size + 13 - len(block))
-                if part == b'':
-                    break
-                block += part
-            downloaded += block_size
-            decodedblock = self.decode_block(block)
-            if type(decodedblock) == dict:
-                if decodedblock['ID'] == 7:
-                    counter += 1
-                    piece += decodedblock['Block']
-                else:
-                    piece += block[9:]
-        print(f"Finished downloading blocks for piece {piece_num} from peer {self.address}")
-        print(f'Len of this piece: {len(piece)} vs the actual len: {self.torrent_instance.piece_length}')
-        print(f'This piece hash value: {hashlib.sha1(piece).hexdigest()} vs our: {download_piece.hash_value.hex()}')
-        if hashlib.sha1(piece).digest() == download_piece.hash_value:
-            print(f'Downloaded piece number: {download_piece.index} from peer {self.address}, writing to disk now...')
-            piece_name = f'downloaded_piece_{download_piece.index}_{self.torrent_instance.name}.bin'
-            path = os.path.join(self.piece_folder, piece_name)
-            with open(path, 'wb') as f:
-                f.write(piece)
-                f.close()
-            return True
-        return False
+        try:
+            download_piece = self.torrent_instance.get_piece(piece_num)
+            block_size = 16384
+            if self.torrent_instance.piece_length < 16384:
+                block_size = self.torrent_instance.piece_length
+            block_size_list = self.block_offset(download_piece.size, block_size)
+            if self.torrent_instance.piece_length % 16384 != 0:
+                block_size_list[-1] = self.torrent_instance.piece_length % 16384
+            begin = 0
+            counter = 0
+            piece = b''
+            downloaded = 0
+            for block_size in block_size_list:
+                print(f"Requesting block of size {block_size} from peer {self.address}")
+                reqmsg = self.request_message(download_piece.index, begin, block_size)
+                begin += block_size
+                self.sock.send(reqmsg)
+                block = b''
+                while len(block) < block_size + 13:  # Keep receiving until the full amount of data is received
+                    part = self.sock.recv(block_size + 13 - len(block))
+                    if part == b'':
+                        break
+                    block += part
+                downloaded += block_size
+                decodedblock = self.decode_block(block)
+                if type(decodedblock) == dict:
+                    if decodedblock['ID'] == 7:
+                        counter += 1
+                        piece += decodedblock['Block']
+                    else:
+                        piece += block[9:]
+            print(f"Finished downloading blocks for piece {piece_num} from peer {self.address}")
+            print(f'Len of this piece: {len(piece)} vs the actual len: {self.torrent_instance.piece_length}')
+            print(f'This piece hash value: {hashlib.sha1(piece).hexdigest()} vs our: {download_piece.hash_value.hex()}')
+            if hashlib.sha1(piece).digest() == download_piece.hash_value:
+                print(f'Downloaded piece number: {download_piece.index} from peer {self.address}, writing to disk now...')
+                piece_name = f'downloaded_piece_{download_piece.index}_{self.torrent_instance.name}.bin'
+                path = os.path.join(self.piece_folder, piece_name)
+                with open(path, 'wb') as f:
+                    f.write(piece)
+                    f.close()
+                return True
+            return False
+        except Exception as e:
+            print(f"An error occurred while downloading piece {piece_num} from peer {self.address}: {e}")
+            return False
 
     def create_handshake(self, info_hash, peer_id):
         info_hash = binascii.a2b_hex(info_hash)
@@ -233,8 +237,7 @@ class PeerClass:
         while no_pieces:  # Choose the rarest piece
             piece_availability_list = list(piece_availability.keys())
             rarest_piece = piece_availability_list[i]
-            if download_queue[rarest_piece.index] != 0:
-                print(f'Peer {self.address} Checking to download piece: {rarest_piece.index}')
+            if download_queue[rarest_piece.index] != 0 and download_queue[rarest_piece.index] != 2:
                 if self.available_pieces[rarest_piece.index]:
                     no_pieces = False
                 elif i == len(piece_availability) - 1:
