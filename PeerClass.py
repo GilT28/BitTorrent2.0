@@ -1,5 +1,6 @@
 import binascii
 import hashlib
+import os
 import socket
 import struct
 import time
@@ -7,7 +8,7 @@ import TorrentClass
 import threading
 
 class PeerClass:
-    def __init__(self, address: tuple, sock: socket, peer_id: bytes, torrent_instance: TorrentClass):
+    def __init__(self, address: tuple, sock: socket, peer_id: bytes, torrent_instance: TorrentClass, piece_folder: str):
         self.address = address
         self.sock = sock
         self.peer_id = peer_id
@@ -15,6 +16,7 @@ class PeerClass:
         self.available_pieces = {piece: False for piece in range(0,
                                                                  torrent_instance.number_of_pieces)}  # false if peer doesn't have piece, true if peer does have piece
         self.peer_choked = True
+        self.piece_folder = piece_folder
 
     def connect(self):
         print(f'{self.address} Connecting to peer...')
@@ -147,8 +149,9 @@ class PeerClass:
         print(f'This piece hash value: {hashlib.sha1(piece).hexdigest()} vs our: {download_piece.hash_value.hex()}')
         if hashlib.sha1(piece).digest() == download_piece.hash_value:
             print(f'Downloaded piece number: {download_piece.index} from peer {self.address}, writing to disk now...')
-            with open(r'C:\Users\gilth\PycharmProjects\BitTorrent 2.0\pieces\downloaded_piece_{}.bin'.format(
-                    download_piece.index), 'wb') as f:
+            piece_name = f'downloaded_piece_{download_piece.index}_{self.torrent_instance.name}.bin'
+            path = os.path.join(self.piece_folder, piece_name)
+            with open(path, 'wb') as f:
                 f.write(piece)
                 f.close()
             return True

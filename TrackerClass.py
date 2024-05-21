@@ -17,6 +17,7 @@ class TrackerClass:
 
     def start_communicating(self):
         print(f'{self.tracker_ip} Connecting...')
+        print(self.tracker_ip)
         self.sock.connect(self.tracker_ip)
         print(f'{self.tracker_ip} Connected! Sending connection message')
         con_msg, transaction_id = self.create_connection_msg()
@@ -39,6 +40,7 @@ class TrackerClass:
             return
         print(f'{self.tracker_ip} Received valid announce message: {tracker_ann_msg}')
         self.peer_list = tracker_ann_msg['peer_list']
+        return self.peer_list
 
     def create_connection_msg(self):  # Creates the connection message to be sent
         action = 0  # 0 For connecting
