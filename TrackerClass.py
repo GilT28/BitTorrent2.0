@@ -6,7 +6,7 @@ import struct
 
 
 class TrackerClass:
-    def __init__(self, tracker_ip: tuple, sock: socket, torrent_instance: TorrentClass, peer_id: bytes):
+    def __init__(self, tracker_ip: tuple, sock: socket, torrent_instance: TorrentClass, peer_id: bytes,logger):
         self.sock = sock  # Socket for communication
         self.sock.settimeout(5) # Timeout for the socket
         self.tracker_ip = tracker_ip  # The tracker IP
@@ -14,35 +14,28 @@ class TrackerClass:
         self.connection_id = 0  # Connection id, will not be a 0 after a successful connection.
         self.peer_id = peer_id  # Random 20 bytes for the id
         self.peer_list = []
+        self.logger = logger
 
     def start_communicating(self):
-        print(f'{self.tracker_ip} Connecting...')
-        print(self.tracker_ip)
         try:
             self.sock.connect(self.tracker_ip)
         except socket.gaierror:
-            print(f"Unable to resolve {self.tracker_ip}. Please check the hostname or network connection.")
             return
-        print(f'{self.tracker_ip} Connected! Sending connection message')
+        self.logger.info(f'{self.torrent_instance.name} {self.tracker_ip} Connected!')
         con_msg, transaction_id = self.create_connection_msg()
         self.sock.send(con_msg)
-        print(f'{self.tracker_ip} Connection message sent!')
         tracker_con_msg = self.decode_connection_msg(self.sock.recv(4096))  # Trackers own connection message
         if tracker_con_msg['action'] == 3 or tracker_con_msg['transaction_id'] != transaction_id:
-            print(f'{self.tracker_ip} ERROR: invalid connection. breaking socket')
             return
-        print(f'{self.tracker_ip} Received valid connection message: {tracker_con_msg}')
-        print(f'{self.tracker_ip} Sending announce message')
+        self.logger.info(f'{self.torrent_instance.name}{self.tracker_ip} Received valid connection message: {tracker_con_msg} sending announce message...')
         ann_msg, transaction_id = self.create_announce_msg(tracker_con_msg['connection_id'],
                                                            self.torrent_instance.info_hash, self.peer_id,
                                                            self.torrent_instance.size)
         self.sock.send(ann_msg)
-        print(f'{self.tracker_ip} Announce message sent!')
         tracker_ann_msg = self.decode_announce_msg(self.sock.recv(4096))
         if tracker_ann_msg['action'] == 3 or tracker_ann_msg['transaction_id'] != transaction_id:
-            print(f'{self.tracker_ip} ERROR: invalid connection. breaking socket')
             return
-        print(f'{self.tracker_ip} Received valid announce message: {tracker_ann_msg}')
+        self.logger.info(f'{self.torrent_instance.name} {self.tracker_ip} Received valid announce message: {tracker_ann_msg}')
         self.peer_list = tracker_ann_msg['peer_list']
         return self.peer_list
 
