@@ -16,14 +16,13 @@ class Torrent:
         self.torrent_instance = None
         self.piece_availability = {}  # 0 means that no peer has the piece
         self.download_queue = []  # Queue of pieces to download
-        self.name = ''
+        self.torrent_instance = TorrentClass.TorrentClass(self.path)
+        self.name = self.torrent_instance.name        
     
     def start(self): # This is the function that will start and finish the download
-        self.torrent_instance = TorrentClass.TorrentClass(self.path)
         pbar_lock = False
         with tqdm(total=round((self.torrent_instance.size) / (1024 * 1024),2), desc="Downloading", unit="MB") as pbar:
             self.logger.info(f"{self.name} Starting download...")
-            self.name = self.torrent_instance.name
             self.piece_availability = {piece: 0 for piece in self.torrent_instance.piece_list} 
             self.download_queue = [1 for piece in range(0, self.torrent_instance.number_of_pieces)]
             udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

@@ -1,9 +1,11 @@
-import math
-import time
-from tqdm import tqdm
+import logging
+import Torrent
 
+logging.basicConfig(filename='torrent.log', level=logging.INFO, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', filemode='w')
 
-results = []
+logger = logging.getLogger(__name__)
 
-for i in tqdm(range(10000)):
-    results.append(math.factorial(i))
+if __name__ == '__main__':
+    torrent = Torrent.Torrent("Dune Part 2 (1.6GB).torrent",logger)
+    torrent.start()

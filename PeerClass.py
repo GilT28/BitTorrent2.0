@@ -65,7 +65,7 @@ class PeerClass:
                 msg = self.sock.recv(4096)
                 self.response_handler(msg, piece_availability)
             except socket.timeout:
-                pass
+                self.logger.info(f"{self.torrent_instance.name} ({self.address}) Timed out.")
 
     def response_handler(self, msg, piece_availability):
         if len(msg) == 5:
