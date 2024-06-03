@@ -2,7 +2,7 @@
 # Description: This file contains the settings for the BitTorrent client.
 
 # Path to the directory where pieces of the torrent file are stored
-PIECE_FOLDER = r"C:\Users\gilth\Documents\VSCode Projects\BitTorrent 2.0\BitTorrent2.0\pieces"
+PIECE_FOLDER = r"C:\Users\gilth\PycharmProjects\BitTorrent2.0\pieces"
 
 # Path to the directory where the downloaded torrents will be stored
-DOWNLOAD_FOLDER = r"C:\Users\gilth\Documents\VSCode Projects\BitTorrent 2.0\BitTorrent2.0\downloads"
+DOWNLOAD_FOLDER = r"C:\Users\gilth\PycharmProjects\BitTorrent2.0\downloads"

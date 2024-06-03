@@ -50,7 +50,6 @@ class PeerClass:
                 no_pieces, rarest_piece = self.get_rarest_piece(piece_availability, download_queue)
                 if not no_pieces:
                     download_queue[rarest_piece.index] = 2  # Set the count of this piece to 2 as it's being downloaded
-                    self.logger.info(f"{self.torrent_instance.name} Downloading piece {rarest_piece.index} from peer {self.address}")
                     flag = self.download_piece(rarest_piece.index,pbar,pbar_lock)
                     if flag:
                         self.logger.info(f"{self.torrent_instance.name} Finished downloading piece {rarest_piece.index} from peer {self.address}")
