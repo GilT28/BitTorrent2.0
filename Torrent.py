@@ -96,9 +96,9 @@ class Torrent:
         while True:
             if len(os.listdir(self.piece_path)) == torrent_instance.number_of_pieces:
                 download_finished = True
-                for thread in threads:
-                    thread.join()
                 break
+        for thread in threads:
+            thread.join()
         return len(os.listdir(self.piece_path)) == torrent_instance.number_of_pieces
 
     def assemble_torrent(self, torrent_instance):
