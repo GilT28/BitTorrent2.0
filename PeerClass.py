@@ -1,72 +1,67 @@
-import binascii
 import hashlib
 import os
-import socket
 import struct
+import binascii
 import time
-import TorrentClass
 from sys import exit
 
-class PeerClass:
-    def __init__(self, address: tuple, sock: socket, peer_id: bytes, torrent_instance: TorrentClass, piece_folder: str,logger):
+
+class PeerClass(Exception):
+    def __init__(self, address, sock, peer_id, torrent_instance, piece_folder, logger):
         self.address = address
         self.sock = sock
         self.peer_id = peer_id
         self.torrent_instance = torrent_instance
-        self.available_pieces = {piece: False for piece in range(0,
-                                                                 torrent_instance.number_of_pieces)}  # false if peer doesn't have piece, true if peer does have piece
+        self.available_pieces = set()  # Piece index for each piece that the peer has
         self.peer_choked = True
         self.piece_folder = piece_folder
         self.logger = logger
+        self.block_size = min(16384, self.torrent_instance.piece_length)
 
     def connect(self):
         try:
+            self.logger.info(f"{self.torrent_instance.name} Attempting connection on peer {self.address}")
             self.sock.connect(self.address)
-        except ConnectionRefusedError:
+            handshake = self.create_handshake(self.torrent_instance.info_hash, self.peer_id)
+            self.sock.send(handshake)
+            handshake_data = self.receive_handshake()
+            if isinstance(handshake_data, bytes) and len(handshake_data) == 68 and handshake_data[
+                                                                                   1:20:] == b'BitTorrent protocol':
+                self.logger.info(f'{self.torrent_instance.name} ({self.address}) Connected!')
+                return True
             return False
         except Exception as e:
             return False
-        handshake = self.create_handshake(self.torrent_instance.info_hash, self.peer_id)
-        self.sock.send(handshake)
-        handshake_data = self.recv_handshake()
-        if isinstance(handshake_data, bytes) and len(handshake_data) == 68 and handshake_data[
-                                                                               1:20:] == b'BitTorrent protocol':
-            self.logger.info(f'{self.torrent_instance.name} ({self.address}) Connected!')
-            return True
-        return False
+            # self.logger.error(f"{self.torrent_instance.name} ERROR with connecting to peer {self.address}, {e}")
+            # print(f"{self.torrent_instance.name} ERROR with connecting to peer {self.address}, {e}")
 
-    def peer_handler(self, download_queue, piece_availability,pbar,pbar_lock):
+    def peer_handler(self, priority_queue, pbar, pbar_lock, download_finished):
         start_time = time.time()
         interested_msg = self.create_msg(2)
         self.sock.send(interested_msg)
-        self.sock.settimeout(3.0)
-        while True:
-            # Check if all pieces have been downloaded
-            if all(piece == 0 for piece in download_queue):
-                break
-
+        self.sock.settimeout(5.0)
+        while not download_finished:
             current_time = time.time()
+
             if not self.peer_choked:
-                no_pieces, rarest_piece = self.get_rarest_piece(piece_availability, download_queue)
-                if not no_pieces:
-                    download_queue[rarest_piece.index] = 2  # Set the count of this piece to 2 as it's being downloaded
-                    flag = self.download_piece(rarest_piece.index,pbar,pbar_lock)
-                    if flag:
-                        self.logger.info(f"{self.torrent_instance.name} Finished downloading piece {rarest_piece.index} from peer {self.address}")
-                        download_queue[rarest_piece.index] = 0
+                piece = self.get_rarest_available_piece(priority_queue)
+                if piece is not None:
+                    priority_queue.update_download_status(piece.index, 2)
+                    if self.download_piece(piece, pbar, pbar_lock, priority_queue):
+                        self.logger.info(
+                            f"{self.torrent_instance.name} Finished downloading piece {piece.index} from peer {self.address}")
+                        priority_queue.update_download_status(piece.index, 1)
                     else:
-                        download_queue[rarest_piece.index] = 1
+                        priority_queue.update_download_status(piece.index, 0)
+                    continue
             if current_time - start_time >= 120:
                 keep_alive = struct.pack('!I', 0)
                 self.sock.send(keep_alive)
                 start_time = current_time
-            try:
-                msg = self.sock.recv(4096)
-                self.response_handler(msg, piece_availability)
-            except socket.timeout:
-                self.logger.info(f"{self.torrent_instance.name} ({self.address}) Timed out.")
+            msg = self.sock.recv(4096)
+            self.response_handler(msg, priority_queue)
 
-    def response_handler(self, msg, piece_availability):
+    def response_handler(self, msg, priority_queue):
         if len(msg) == 5:
             id = msg[4]
             match id:
@@ -81,18 +76,17 @@ class PeerClass:
             payload = msg[5:]
             if id == 4:  # Have
                 piece_index = payload
-                self.have(piece_index, piece_availability)
+                self.have(piece_index, priority_queue)
             if id == 5:  # Bitfield
-                self.bitfield(payload, piece_availability)
+                self.bitfield(payload, priority_queue)
 
-    def download_piece(self, piece_num,pbar,pbar_lock):
-        self.logger.info(f"{self.torrent_instance.name} Downloading piece {piece_num} from peer {self.address}")
+    def download_piece(self, download_piece, pbar, pbar_lock, priority_queue):
+        self.logger.info(
+            f"{self.torrent_instance.name} Downloading piece {download_piece.index} from peer {self.address}")
         try:
-            download_piece = self.torrent_instance.get_piece(piece_num)
-            block_size = min(16384, self.torrent_instance.piece_length)
-            block_size_list = self.block_offset(download_piece.size, block_size)
-            if self.torrent_instance.piece_length % block_size != 0:
-                block_size_list[-1] = self.torrent_instance.piece_length % block_size
+            block_size_list = self.block_offset(download_piece.size, self.block_size)
+            if self.torrent_instance.piece_length % self.block_size != 0:
+                block_size_list[-1] = self.torrent_instance.piece_length % self.block_size
 
             begin = 0
             piece = b''
@@ -100,23 +94,22 @@ class PeerClass:
                 reqmsg = self.request_message(download_piece.index, begin, block_size)
                 begin += block_size
                 self.sock.send(reqmsg)
-                block = b''
+                block = bytearray()
+                part = self.sock.recv(18000)  # First BIG request to maybe receive the entire block at once
+                block.extend(part)
                 while len(block) < block_size + 13:
                     part = self.sock.recv(block_size + 13 - len(block))
                     if part == b'':
                         break
-                    block += part
+                    block.extend(part)
                 if len(block) < block_size + 13:
                     exit()
                 if self.get_message_id(block) == 7:
                     piece += block[13:]
-            piece_hash = hashlib.sha1(piece).digest()  # Calculate hash once
+            piece_hash = hashlib.sha1(piece).digest()
             if piece_hash == download_piece.hash_value:
-                while pbar_lock:
-                    pass
-                pbar_lock = True
-                pbar.update(round((download_piece.size) / (1024 * 1024),2))
-                pbar_lock = False
+                with pbar_lock:
+                    pbar.update(round(download_piece.size / (1024 * 1024), 2))
                 piece_name = f'downloaded_piece_{download_piece.index}_{self.torrent_instance.name}.bin'
                 path = os.path.join(self.piece_folder, piece_name)
                 with open(path, 'wb') as f:
@@ -125,33 +118,43 @@ class PeerClass:
                 return True
             return False
         except Exception as e:
-            self.logger.error(f"{self.torrent_instance.name} Error downloading piece {piece_num} from peer {self.address}: {e}")
-            return False
-        
+            self.logger.error(
+                f"{self.torrent_instance.name} Error downloading piece {download_piece.index} from peer {self.address}: {e}")
+            priority_queue.update_download_status(download_piece.index, 0)
+            exit()
+
     def create_handshake(self, info_hash, peer_id):
-        info_hash = binascii.a2b_hex(info_hash)
-        msg = struct.pack('!B19sQ20s20s', 19, 'BitTorrent protocol'.encode(), 0, info_hash, peer_id)
-        return msg
+        return struct.pack('!B19sQ20s20s', 19, 'BitTorrent protocol'.encode(), 0, binascii.a2b_hex(info_hash), peer_id)
+
+    def receive_handshake(self):
+        data = bytearray()
+        self.sock.settimeout(5)
+
+        try:
+            while len(data) < 68:
+                part = self.sock.recv(68 - len(data))  # Receive the remaining bytes to reach 68 bytes
+                if not part:
+                    return False
+                data.extend(part)
+        except self.sock.timeout:
+            return False
+        except Exception as e:
+            return False
+        finally:
+            self.sock.settimeout(2)
+
+        return bytes(data)
+
+    def get_rarest_available_piece(self, priority_queue):
+        rarest_piece = None
+        for piece in priority_queue.heap:
+            if piece.index in self.available_pieces and piece.download_status == 0:
+                rarest_piece = piece
+                return rarest_piece
+        return rarest_piece
 
     def create_msg(self, id):
-        msg = struct.pack('!IB', 1, id)
-        return msg
-
-    def recv_handshake(self):
-        data = b''
-        self.sock.settimeout(5)
-        while True:
-            try:
-                part = self.sock.recv(1)
-                data += part
-                if part == b'':
-                    return False
-                if len(data) >= 68:
-                    break
-            except Exception as e:
-                return False
-        self.sock.settimeout(2)
-        return data
+        return struct.pack('!IB', 1, id)
 
     def choked(self):
         self.peer_choked = True
@@ -159,59 +162,40 @@ class PeerClass:
 
     def unchoked(self):
         self.peer_choked = False
-        msg = self.create_msg(2)
-        self.sock.send(msg)
         return
 
-    def have(self, index, piece_availability):
-        self.available_pieces[index] = True
-        piece_availability[self.torrent_instance.get_piece(index)] += 1
-        piece_availability = dict(sorted(piece_availability.items(), key=lambda x: x[1], reverse=True))
+    def have(self, index, priority_queue):
+        self.available_pieces.add(index)
+        priority_queue.update_piece_rarity(index)
         return
 
-    def bitfield(self, payload, piece_availability):
+    def bitfield(self, payload, priority_queue):
+        # Convert the payload bytes to a bitfield list
         bitfield_list = []
         piece_counter = 0
-        pack_format = '!' + 'B' * len(payload)
-        bytes_tuple = struct.unpack(pack_format, payload)
-        for byte in bytes_tuple:
-            bits = '{0:08b}'.format(byte)
-            for bit in bits:
-                if bit == '1':
-                    bitfield_list.append(piece_counter)
+        for byte in payload:
+            for i in range(7, -1, -1):  # Iterate over the bits of each byte
+                if (byte >> i) & 1:  # Check if the bit is set
+                    piece_index = piece_counter
+                    if piece_index < self.torrent_instance.number_of_pieces:
+                        bitfield_list.append(piece_index)
+                        self.available_pieces.add(piece_index)
+                        priority_queue.update_piece_rarity(piece_index)
                 piece_counter += 1
-        if len(bitfield_list) > self.torrent_instance.number_of_pieces:
-            self.sock.close()
-        for i in bitfield_list:
-            self.available_pieces[i] = True
-            piece_availability[self.torrent_instance.get_piece(i)] += 1
-        piece_availability = dict(sorted(piece_availability.items(), key=lambda x: x[1], reverse=True))
-        return
+        return bitfield_list
 
-    def block_offset(self, piecesize, block_size):
-        times = piecesize / block_size
-        l = []
-        for i in range(int(times)):
-            l.append(block_size)
-        if not times.is_integer():
-            l.append(int(block_size * (times - int(times))))
-        return l
+    def block_offset(self, piece_size, block_size):
+        full_blocks = piece_size // block_size
+        remainder = piece_size % block_size
 
-    def request_message(self, pieceindex, begin, block_size):  # Block size = 16384 bytes
-        msg = struct.pack('!IBIII', 13, 6, pieceindex, begin, block_size)
-        return msg
-    
-    def get_message_id(self,msg):
-        length, id = struct.unpack(">IB", msg[:5])
-        return id
+        block_sizes = [block_size] * full_blocks
+        if remainder:
+            block_sizes.append(remainder)
 
-    def get_rarest_piece(self, piece_availability, download_queue):
-        no_pieces = True
-        rarest_piece = None
-        for piece in piece_availability:
-            if download_queue[piece.index] != 0 and download_queue[piece.index] != 2:
-                if self.available_pieces[piece.index]:
-                    no_pieces = False
-                    rarest_piece = piece
-                    break
-        return no_pieces, rarest_piece
+        return block_sizes
+
+    def request_message(self, piece_index, begin, block_size):  # Block size = 16384 bytes
+        return struct.pack('!IBIII', 13, 6, piece_index, begin, block_size)
+
+    def get_message_id(self, msg):
+        return struct.unpack(">IB", msg[:5])[1]

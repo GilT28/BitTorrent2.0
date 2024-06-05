@@ -9,6 +9,14 @@ class Piece:
         self.index = index
         self.size = size
         self.hash_value = hash_value
+        self.rarity = 0
+        # 0 means the piece hasn't been downloaded yet, 1 means the piece has been
+        # downloaded and 2 means that the piece is currently being downloaded
+        self.download_status = 0
+
+    def __lt__(self, other):
+        # Less than comparison based on rarity
+        return self.rarity < other.rarity
 
 
 class TorrentClass:
@@ -70,8 +78,3 @@ class TorrentClass:
         piece_list = [Piece(index, piece_size, hash_value) for index, hash_value in enumerate(hash_list)]
         piece_list[len(piece_list) - 1].size = self.size - (self.number_of_pieces - 1) * self.piece_length
         return piece_list
-
-    def get_piece(self,piece_index):
-        for piece in self.piece_list:
-            if piece.index == piece_index:
-                return piece

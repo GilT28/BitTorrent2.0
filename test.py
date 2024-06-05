@@ -1,11 +1,5 @@
-import logging
-import Torrent
-
-logging.basicConfig(filename='torrent.log', level=logging.INFO, 
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', filemode='w')
-
-logger = logging.getLogger(__name__)
+import TorrentClass
 
 if __name__ == '__main__':
-    torrent = Torrent.Torrent("Dune Part 2 (1.6GB).torrent",logger)
-    torrent.start()
+    torrent = TorrentClass.TorrentClass(r"C:\Users\gilth\PycharmProjects\BitTorrent2.0\Dune Part 2 (1.6GB).torrent")
+    print(torrent.number_of_pieces)
