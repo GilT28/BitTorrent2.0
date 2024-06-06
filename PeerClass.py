@@ -53,6 +53,7 @@ class PeerClass(Exception):
                         priority_queue.update_download_status(piece.index, 1)
                     else:
                         priority_queue.update_download_status(piece.index, 0)
+                        break
                     continue
             if current_time - start_time >= 120:
                 keep_alive = struct.pack('!I', 0)
@@ -121,7 +122,7 @@ class PeerClass(Exception):
             self.logger.error(
                 f"{self.torrent_instance.name} Error downloading piece {download_piece.index} from peer {self.address}: {e}")
             priority_queue.update_download_status(download_piece.index, 0)
-            exit()
+            return False
 
     def create_handshake(self, info_hash, peer_id):
         return struct.pack('!B19sQ20s20s', 19, 'BitTorrent protocol'.encode(), 0, binascii.a2b_hex(info_hash), peer_id)
@@ -146,12 +147,13 @@ class PeerClass(Exception):
         return bytes(data)
 
     def get_rarest_available_piece(self, priority_queue):
-        rarest_piece = None
-        for piece in priority_queue.heap:
-            if piece.index in self.available_pieces and piece.download_status == 0:
-                rarest_piece = piece
-                return rarest_piece
-        return rarest_piece
+        with priority_queue.lock:
+            rarest_piece = None
+            for piece in priority_queue.heap:
+                if piece.index in self.available_pieces and piece.download_status == 0:
+                    rarest_piece = piece
+                    return rarest_piece
+            return rarest_piece
 
     def create_msg(self, id):
         return struct.pack('!IB', 1, id)

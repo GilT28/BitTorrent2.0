@@ -9,8 +9,9 @@ import time
 import PriorityQueue
 from tqdm import tqdm
 
+
 class Torrent:
-    def __init__(self, path, logger,messages):
+    def __init__(self, path, logger, messages):
         self.path = path
         self.logger = logger
         self.torrent_instance = None
@@ -20,6 +21,7 @@ class Torrent:
         self.messages = messages
         self.piece_path = str(os.path.join(settings.PIECE_FOLDER, self.name))
         self.download_path = ""
+
     def start(self):  # This is the function that will start and finish the download
         os.makedirs(self.piece_path, exist_ok=True)
         pbar_lock = threading.Lock()
@@ -41,7 +43,7 @@ class Torrent:
             self.logger.info(f"{self.name} Starting peer communication...")
             start_time = time.time()  # Start timing here
             download_finished = False
-            if self.peers_manager(peer_list, peer_id, self.torrent_instance, pbar, pbar_lock,download_finished):
+            if self.peers_manager(peer_list, peer_id, self.torrent_instance, pbar, pbar_lock, download_finished):
                 self.logger.info(f"{self.name} All pieces downloaded. Assembling...")
                 self.assemble_torrent(self.torrent_instance)
                 end_time = time.time()  # End timing here
@@ -50,7 +52,8 @@ class Torrent:
                 minutes = int((duration % 3600) / 60)
                 seconds = int(duration % 60)
                 self.messages.append(f"{self.name} Download completed!")
-                self.messages.append(f"{self.name} Download and assembly took {hours} hours, {minutes} minutes, and {seconds} seconds.")
+                self.messages.append(
+                    f"{self.name} Download and assembly took {hours} hours, {minutes} minutes, and {seconds} seconds.")
                 self.logger.info(
                     f"{self.name} Download and assembly for {self.name} took {hours} hours, {minutes} minutes, and {seconds} seconds.")
                 return True
@@ -71,24 +74,24 @@ class Torrent:
         return []
 
     def peer_communicating(self, peer_address, peer_id, torrent_instance, pbar,
-                           pbar_lock,download_finished):
+                           pbar_lock, download_finished):
         try:
             tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             peer_instance = PeerClass.PeerClass(peer_address, tcp_sock, peer_id, torrent_instance,
                                                 self.piece_path, self.logger)
             if peer_instance.connect():
-                peer_instance.peer_handler(self.priority_queue, pbar, pbar_lock,download_finished)
+                peer_instance.peer_handler(self.priority_queue, pbar, pbar_lock, download_finished)
         except Exception as e:
             tcp_sock.close()
         finally:
             tcp_sock.close()
 
-    def peers_manager(self, peer_list, peer_id, torrent_instance, pbar, pbar_lock,download_finished):
+    def peers_manager(self, peer_list, peer_id, torrent_instance, pbar, pbar_lock, download_finished):
         threads = []
         for peer_address in peer_list:
             try:
                 t1 = threading.Thread(target=self.peer_communicating, args=(
-                    peer_address, peer_id, torrent_instance, pbar, pbar_lock,download_finished))
+                    peer_address, peer_id, torrent_instance, pbar, pbar_lock, download_finished))
                 t1.start()
                 threads.append(t1)  # Add the thread to the list
             except Exception as e:

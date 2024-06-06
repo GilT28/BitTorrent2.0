@@ -2,20 +2,20 @@ import heapq
 import threading
 from TorrentClass import Piece
 
+
 class PriorityQueue:
     def __init__(self):
         self.heap = []
         self.lock = threading.Lock()
         self.index_map = {}
 
-    def initialize_queue(self,piece_list):
+    def initialize_queue(self, piece_list):
         with self.lock:
             self.heap = piece_list[:]
             heapq.heapify(self.heap)
             self.index_map = {piece.index: piece for piece in piece_list}
 
-
-    def push(self,piece_index):
+    def push(self, piece_index):
         with self.lock:
             piece = self.index_map.get(piece_index)
             heapq.heappush(self.heap, piece)
@@ -40,12 +40,12 @@ class PriorityQueue:
                 self.heap.remove(piece)
                 heapq.heappush(self.heap, piece)
 
-    def update_download_status(self,piece_index,download_status):
+    def update_download_status(self, piece_index, download_status):
         with self.lock:
             piece = self.index_map.get(piece_index)
             piece.download_status = download_status
 
-    def get_download_status(self,piece_index):
+    def get_download_status(self, piece_index):
         with self.lock:
             return self.index_map.get(piece_index).download_status
 
